@@ -1,6 +1,6 @@
 {
-  "name": "Меню официанта",
-  "short_name": "Меню",
+  "name": "OrderBoard",
+  "short_name": "OrderBoard",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#1B1918",

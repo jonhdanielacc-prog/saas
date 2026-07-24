@@ -262,14 +262,14 @@ export default function OwnerDashboard({ onLock }) {
 
   if (restaurants === null) {
     return (
-      <div className="app-shell-min" style={styles.app}>
+      <div className="app-shell" style={styles.app}>
         <div style={styles.loadingBox}>Загрузка...</div>
       </div>
     );
   }
 
   return (
-    <div className="app-shell-min" style={styles.app}>
+    <div className="app-shell" style={styles.app}>
       <div style={styles.header}>
         <div style={styles.headerTop}>
           <div style={styles.brand}>
@@ -722,8 +722,12 @@ const styles = {
     color: PAPER,
     maxWidth: 480,
     margin: "0 auto",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
+    flexShrink: 0,
     padding: "18px 16px",
     borderBottom: "1px solid #35312e",
     position: "sticky",
@@ -823,6 +827,10 @@ const styles = {
     fontSize: 14,
   },
   body: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
     padding: "14px 16px 40px",
     display: "flex",
     flexDirection: "column",

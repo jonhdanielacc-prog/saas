@@ -464,7 +464,7 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
   ];
 
   return (
-    <div className="app-shell-min" style={styles.app}>
+    <div className="app-shell" style={styles.app}>
       <div style={styles.header}>
         <div style={styles.waiterRow}>
           <div style={styles.waiterBadge}>
@@ -1037,8 +1037,10 @@ const styles = {
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
+    flexShrink: 0,
     padding: "10px 14px 0",
     position: "sticky",
     top: 0,

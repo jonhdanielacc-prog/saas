@@ -1216,10 +1216,11 @@ function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName, trialInfo
   return (
     <div className="app-shell-min" style={wrapperStyles.center}>
       <div style={wrapperStyles.card}>
+        <div style={wrapperStyles.restaurantName}>{restaurantName}</div>
         <h2 style={wrapperStyles.title}>Кто вы?</h2>
         <p style={wrapperStyles.text}>
-          {restaurantName} · выберите свое имя — под ним будут видны только
-          ваши активные заказы. Историю заказов видят все.
+          Выберите своё имя — под ним будут видны только ваши активные
+          заказы. Историю заказов видят все.
         </p>
         <TrialBanner trialInfo={trialInfo} />
         <div style={wrapperStyles.namesGrid}>
@@ -1442,7 +1443,7 @@ export default function App() {
 
   useEffect(() => {
     if (restaurant && restaurant.name) {
-      document.title = `Меню официанта — ${restaurant.name}`;
+      document.title = `OrderBoard — ${restaurant.name}`;
     }
   }, [restaurant]);
 
@@ -1531,10 +1532,18 @@ const wrapperStyles = {
     fontFamily:
       "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
+  restaurantName: {
+    fontSize: 23,
+    fontWeight: 800,
+    color: "#C9982E",
+    letterSpacing: "-0.01em",
+    lineHeight: 1.2,
+    margin: "0 0 4px",
+  },
   title: {
-    fontSize: 19,
-    fontWeight: 700,
-    color: "#F4EFE6",
+    fontSize: 15,
+    fontWeight: 600,
+    color: "#9a938d",
     margin: "0 0 8px",
   },
   text: {
