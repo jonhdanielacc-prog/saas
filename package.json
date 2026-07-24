@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "push-menu": "node scripts/push-menu.mjs",
+    "reorder-categories": "node scripts/reorder-categories.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

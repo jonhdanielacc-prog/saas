@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Shield,
   LogOut,
@@ -24,6 +24,7 @@ const PAPER = "#F4EFE6";
 
 const POLL_INTERVAL = 5000;
 const HISTORY_RETENTION_DAYS = 14; // сколько дней хранить выполненные заказы в истории
+const OVERDUE_MINUTES = 20;
 
 const money = (n) => (n || 0).toLocaleString("ru-RU");
 const formatDate = (iso) =>
@@ -128,14 +129,101 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
 
   useEffect(() => {
     cleanupOldOrders().then(fetchOrders);
+    // Поллинг — страховка на случай, если Realtime не настроен в Supabase
     const interval = setInterval(fetchOrders, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [restaurantId]);
 
+  // Realtime — заказы официантов видны сразу, без ожидания следующего опроса
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel(`admin-orders-${restaurantId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
+        () => fetchOrders()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [restaurantId]);
+
+  // Тикающие "часы" — раз в полминуты пересчитываем, сколько прошло с момента
+  // создания каждого активного заказа, чтобы подсветить просроченные (20+ мин)
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getElapsedMinutes = (iso) =>
+    Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000));
+
+  const formatElapsed = (minutes) => {
+    if (minutes < 60) return `${minutes} мин`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h} ч ${m} мин`;
+  };
+
+  // Звук + вибрация один раз в момент, когда заказ становится просроченным
+  const notifiedOverdueRef = useRef(new Set());
+  const playOverdueAlert = () => {
+    try {
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    } catch (e) {
+      // не критично
+    }
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.55);
+      oscillator.onended = () => ctx.close();
+    } catch (e) {
+      // звук не критичен для работы приложения
+    }
+  };
+
+  useEffect(() => {
+    const activeIds = new Set(allActive.map((o) => o.id));
+    notifiedOverdueRef.current.forEach((id) => {
+      if (!activeIds.has(id)) notifiedOverdueRef.current.delete(id);
+    });
+    allActive.forEach((entry) => {
+      if (
+        getElapsedMinutes(entry.date) >= OVERDUE_MINUTES &&
+        !notifiedOverdueRef.current.has(entry.id)
+      ) {
+        notifiedOverdueRef.current.add(entry.id);
+        playOverdueAlert();
+      }
+    });
+  }, [now, allActive]);
+
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
   // Очередь по рубрикам: сколько чего сейчас ждёт готовки, отдельно по
-  // каждой рубрике меню (не только еда/бар — сколько рубрик, столько колонок)
+  // каждой рубрике меню (не только еда/бар — сколько рубрик, столько колонок).
+  // oldestDate — время самого старого заказа с этим блюдом, чтобы видеть,
+  // что готовится дольше всего (и подсветить просроченное, 20+ мин).
   const kitchenQueue = useMemo(() => {
     const buckets = new Map(categories.map((c) => [c.id, new Map()]));
     allActive.forEach((order) => {
@@ -147,8 +235,14 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
         if (existing) {
           existing.qty += it.n;
           existing.tables.push(order.table);
+          if (order.date < existing.oldestDate) existing.oldestDate = order.date;
         } else {
-          bucket.set(it.id, { name: it.name, qty: it.n, tables: [order.table] });
+          bucket.set(it.id, {
+            name: it.name,
+            qty: it.n,
+            tables: [order.table],
+            oldestDate: order.date,
+          });
         }
       });
     });
@@ -156,7 +250,9 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
       id: c.id,
       name: c.name,
       icon: c.icon,
-      list: [...(buckets.get(c.id)?.values() || [])].sort((a, b) => b.qty - a.qty),
+      list: [...(buckets.get(c.id)?.values() || [])].sort(
+        (a, b) => new Date(a.oldestDate) - new Date(b.oldestDate)
+      ),
     }));
   }, [allActive, itemsById, categories]);
 
@@ -369,21 +465,31 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
             <p style={styles.empty}>Сейчас ни у одного официанта нет активных заказов.</p>
           ) : (
             <div style={styles.modalList}>
-              {allActive.map((entry) => (
-                <div key={entry.id} style={styles.orderRow}>
-                  <button style={styles.orderRowMain} onClick={() => setViewingOrder(entry)}>
-                    <span style={styles.orderTable}>
-                      Стол №{entry.table} · {entry.waiter}
-                    </span>
-                    <span style={styles.orderMeta}>
-                      {formatDate(entry.date)} · {entry.itemsCount} поз. · {money(entry.total)} сом
-                    </span>
-                  </button>
-                  <button style={styles.eyeBtn} onClick={() => setViewingOrder(entry)} aria-label="Состав заказа">
-                    <Eye size={17} strokeWidth={2.2} />
-                  </button>
-                </div>
-              ))}
+              {allActive.map((entry) => {
+                const elapsed = getElapsedMinutes(entry.date);
+                const overdue = elapsed >= OVERDUE_MINUTES;
+                return (
+                  <div
+                    key={entry.id}
+                    style={{ ...styles.orderRow, ...(overdue ? styles.orderRowOverdue : {}) }}
+                  >
+                    <button style={styles.orderRowMain} onClick={() => setViewingOrder(entry)}>
+                      <span style={styles.orderTable}>
+                        Стол №{entry.table} · {entry.waiter}
+                        <span style={{ ...styles.elapsedBadge, ...(overdue ? styles.elapsedBadgeOverdue : {}) }}>
+                          {formatElapsed(elapsed)}
+                        </span>
+                      </span>
+                      <span style={styles.orderMeta}>
+                        {formatDate(entry.date)} · {entry.itemsCount} поз. · {money(entry.total)} сом
+                      </span>
+                    </button>
+                    <button style={styles.eyeBtn} onClick={() => setViewingOrder(entry)} aria-label="Состав заказа">
+                      <Eye size={17} strokeWidth={2.2} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           ))}
 
@@ -425,13 +531,28 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
                   {col.list.length === 0 ? (
                     <p style={styles.empty}>Ничего не ждёт в этой рубрике.</p>
                   ) : (
-                    col.list.map((d) => (
-                      <div key={d.name} style={styles.kitchenRow}>
-                        <span style={styles.kitchenRowName}>{d.name}</span>
-                        <span style={styles.kitchenRowQty}>×{d.qty}</span>
-                        <span style={styles.kitchenRowTables}>столы: {d.tables.join(", ")}</span>
-                      </div>
-                    ))
+                    col.list.map((d) => {
+                      const elapsed = getElapsedMinutes(d.oldestDate);
+                      const overdue = elapsed >= OVERDUE_MINUTES;
+                      return (
+                        <div
+                          key={d.name}
+                          style={{ ...styles.kitchenRow, ...(overdue ? styles.kitchenRowOverdue : {}) }}
+                        >
+                          <span style={styles.kitchenRowName}>{d.name}</span>
+                          <span style={styles.kitchenRowQty}>×{d.qty}</span>
+                          <span
+                            style={{
+                              ...styles.elapsedBadge,
+                              ...(overdue ? styles.elapsedBadgeOverdue : {}),
+                            }}
+                          >
+                            {formatElapsed(elapsed)}
+                          </span>
+                          <span style={styles.kitchenRowTables}>столы: {d.tables.join(", ")}</span>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               );
@@ -671,14 +792,22 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
               </button>
             </div>
             <div style={styles.modalBody}>
-              {viewingOrder.items.map((i) => (
-                <div key={i.id} style={styles.statRow}>
-                  <span>
-                    {i.n}× {i.name}
-                  </span>
-                  <span style={styles.statRowValue}>{money(i.price * i.n)} сом</span>
-                </div>
-              ))}
+              {(() => {
+                const orderItems = viewingOrder.items || [];
+                const maxBatch = Math.max(0, ...orderItems.map((i) => i.batch || 0));
+                return orderItems.map((i, idx) => {
+                  const isNew = maxBatch > 0 && (i.batch || 0) === maxBatch;
+                  return (
+                    <div key={`${i.id}-${idx}`} style={styles.statRow}>
+                      <span>
+                        {i.n}× {i.name}
+                        {isNew && <span style={styles.newBadge}>Новое</span>}
+                      </span>
+                      <span style={styles.statRowValue}>{money(i.price * i.n)} сом</span>
+                    </div>
+                  );
+                });
+              })()}
               <div style={{ ...styles.statRow, fontWeight: 700, marginTop: 8 }}>
                 <span>Итого</span>
                 <span>{money(viewingOrder.total)} сом</span>
@@ -949,6 +1078,13 @@ const styles = {
   empty: { color: "#8a8480", fontSize: 13.5, textAlign: "center", padding: "20px 0" },
   modalList: { display: "flex", flexDirection: "column" },
   orderRow: { display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid #322e2b" },
+  orderRowOverdue: {
+    background: "rgba(179,86,79,0.12)",
+    borderBottom: "1px solid rgba(179,86,79,0.4)",
+    borderRadius: 8,
+    padding: "8px 6px",
+    margin: "0 -6px",
+  },
   orderRowMain: {
     flex: 1,
     display: "flex",
@@ -961,13 +1097,38 @@ const styles = {
     cursor: "pointer",
     textAlign: "left",
   },
-  orderTable: { fontSize: 13.5, fontWeight: 600 },
+  orderTable: { fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 },
   orderMeta: { fontSize: 11.5, color: "#8a8480" },
+  elapsedBadge: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: "#9a938d",
+    background: "#1B1918",
+    borderRadius: 20,
+    padding: "2px 8px",
+  },
+  elapsedBadgeOverdue: { color: "#e07a72", background: "rgba(179,86,79,0.18)" },
+  newBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: GOLD,
+    background: "rgba(201,152,46,0.15)",
+    borderRadius: 20,
+    padding: "1px 7px",
+    marginLeft: 6,
+  },
   eyeBtn: { background: "none", border: "none", color: "#8a8480", cursor: "pointer", display: "flex", flexShrink: 0 },
   kitchenCols: { display: "flex", flexDirection: "column", gap: 22 },
   kitchenCol: { display: "flex", flexDirection: "column", gap: 8 },
   kitchenColTitle: { display: "flex", alignItems: "center", gap: 7, fontSize: 14, fontWeight: 700, color: PAPER, marginBottom: 2 },
   kitchenRow: { display: "flex", alignItems: "baseline", gap: 8, borderBottom: "1px solid #35312e", paddingBottom: 8, fontSize: 13.5 },
+  kitchenRowOverdue: {
+    background: "rgba(179,86,79,0.12)",
+    borderBottom: "1px solid rgba(179,86,79,0.4)",
+    borderRadius: 8,
+    padding: "6px 6px 8px",
+    margin: "0 -6px",
+  },
   kitchenRowName: { flex: 1, color: PAPER, fontWeight: 600 },
   kitchenRowQty: { color: GOLD, fontWeight: 700 },
   kitchenRowTables: { color: "#8a8480", fontSize: 12, flexShrink: 0 },

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Plus, Minus, ChevronLeft, ChevronRight, X, Check, MessageSquarePlus, MessageSquareText, History, Trash2, Eye, User, LogOut, WifiOff, ShieldCheck } from "lucide-react";
+import { Plus, Minus, ChevronLeft, ChevronRight, X, Check, MessageSquarePlus, MessageSquareText, History, Trash2, Eye, User, LogOut, WifiOff, ShieldCheck, Search } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import {
   getCachedRestaurantId,
@@ -18,9 +18,22 @@ const POLL_INTERVAL = 5000; // мс — как часто подтягивать
 const HISTORY_RETENTION_DAYS = 14; // сколько дней хранить выполненные заказы в истории
 
 // Карточка всегда одной высоты — это то, что делает расчет страниц предсказуемым
-const CARD_H = 150; // px, высота карточки блюда — крупнее, удобнее попадать пальцем в +/-
+const CARD_H = 110; // px, высота карточки блюда — компактнее, но еще удобно попадать пальцем в +/-
 const MIN_CARD_W = 156; // px, минимальная ширина карточки
 const GRID_GAP = 10; // px, зазор между карточками
+
+// Порядок рубрик для официанта: сначала блюда (иконка utensils/flame), потом
+// бар/напитки (wine/beer/coffee), потом всё остальное — по иконке рубрики,
+// а не по названию (рубрики у каждого кафе свои, но иконка выбирается из
+// фиксированного набора, см. CATEGORY_ICONS/menuIcons.ICON_OPTIONS).
+const CATEGORY_ICON_RANK = {
+  utensils: 0,
+  flame: 0,
+  wine: 1,
+  beer: 1,
+  coffee: 1,
+};
+const categoryRank = (cat) => CATEGORY_ICON_RANK[cat.icon] ?? 2;
 
 function OrderScreen({
   waiterName,
@@ -30,9 +43,15 @@ function OrderScreen({
   categories,
   items: menuItems,
 }) {
-  const [category, setCategory] = useState(categories[0]?.id || "food");
+  const sortedCategories = useMemo(
+    () => [...categories].sort((a, b) => categoryRank(a) - categoryRank(b)),
+    [categories]
+  );
+  const [category, setCategory] = useState(sortedCategories[0]?.id || "food");
   const [tableNumber, setTableNumber] = useState(1);
   const [page, setPage] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [qty, setQty] = useState({});
   const [comments, setComments] = useState({});
   const [commentDraft, setCommentDraft] = useState("");
@@ -104,13 +123,36 @@ function OrderScreen({
       await fetchOrders();
       if (!cancelled) setOrdersLoading(false);
     })();
-    // Периодически подтягиваем заказы других официантов
+    // Поллинг остается страховкой на случай, если Realtime не настроен в Supabase
+    // (нужно alter publication supabase_realtime add table orders — см. README)
     const interval = setInterval(fetchOrders, POLL_INTERVAL);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
   }, []);
+
+  // Realtime — заказы других официантов (новые/выполненные/отмененные) видны сразу,
+  // без ожидания следующего опроса
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel(`orders-${restaurantId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
+        () => fetchOrders()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [restaurantId]);
 
   // Черновик (еще не отправленный заказ) — грузим и сохраняем локально, отдельно на каждого официанта
   useEffect(() => {
@@ -200,6 +242,41 @@ function OrderScreen({
 
   const [viewingOrder, setViewingOrder] = useState(null);
   const [confirmingCancel, setConfirmingCancel] = useState(null); // заказ, который собираются отменить
+  const [addToOrderId, setAddToOrderId] = useState(null); // id активного заказа, к которому сейчас добавляем позиции
+
+  // Довешиваем новые позиции к уже отправленному активному заказу (не создавая новый)
+  const appendToActiveOrder = async (id, newItems, addedCount, addedSum) => {
+    const existing = allActiveOrders.find((e) => e.id === id);
+    if (!existing) return;
+    const mergedItems = [...existing.items, ...newItems];
+    const mergedCount = existing.itemsCount + addedCount;
+    const mergedTotal = existing.total + addedSum;
+    setAllActiveOrders((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, items: mergedItems, itemsCount: mergedCount, total: mergedTotal }
+          : e
+      )
+    );
+    if (!supabase) return;
+    const { error } = await supabase
+      .from("orders")
+      .update({ items: mergedItems, items_count: mergedCount, total: mergedTotal })
+      .eq("id", id)
+      .eq("restaurant_id", restaurantId);
+    if (error) setOrdersError(error.message);
+    fetchOrders();
+  };
+
+  const startAddToOrder = (entry) => {
+    setTableNumber(entry.table);
+    setAddToOrderId(entry.id);
+    setQty({});
+    setComments({});
+    setShowOrders(false);
+    setCategory(sortedCategories[0]?.id || "food");
+    setPage(0);
+  };
 
   // --- Адаптивная сетка: считаем, сколько карточек влезает без скролла ---
   const gridRef = useRef(null);
@@ -220,28 +297,36 @@ function OrderScreen({
     };
   }, []);
 
-  const { columns, rows, pageSize } = useMemo(() => {
-    if (!box.width || !box.height) {
-      return { columns: 2, rows: 5, pageSize: 10 };
-    }
-    const cols = Math.max(
-      1,
-      Math.floor((box.width + GRID_GAP) / (MIN_CARD_W + GRID_GAP))
-    );
-    const rws = Math.max(
-      1,
-      Math.floor((box.height + GRID_GAP) / (CARD_H + GRID_GAP))
-    );
-    return { columns: cols, rows: rws, pageSize: cols * rws };
-  }, [box]);
+  // Сетка — 2 колонки, до 4 строк (8 блюд/страница). Если 4 строки карточек
+  // высотой CARD_H не помещаются без скролла — строк меньше, лишние блюда уходят на следующую страницу.
+  const columns = 2;
+  const rows = box.height
+    ? Math.max(1, Math.min(4, Math.floor((box.height + GRID_GAP) / (CARD_H + GRID_GAP))))
+    : 4;
+  const pageSize = columns * rows;
+  const rowHeight = box.height
+    ? (box.height - GRID_GAP * (rows - 1)) / rows
+    : CARD_H;
 
-  const items = menuItems.filter((i) => i.category === category);
+  const trimmedSearch = searchQuery.trim().toLowerCase();
+  const items = trimmedSearch
+    ? menuItems.filter((i) => i.name.toLowerCase().includes(trimmedSearch))
+    : menuItems.filter((i) => i.category === category);
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
 
-  // Если после смены ориентации/размера текущая страница вышла за пределы — подрезаем
+  // Если после смены ориентации/размера/поиска текущая страница вышла за пределы — подрезаем
   useEffect(() => {
     setPage((p) => Math.min(p, pageCount - 1));
   }, [pageCount]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [trimmedSearch]);
+
+  const closeSearch = () => {
+    setShowSearch(false);
+    setSearchQuery("");
+  };
 
   const pageItems = useMemo(
     () => items.slice(page * pageSize, page * pageSize + pageSize),
@@ -253,6 +338,19 @@ function OrderScreen({
     menuItems.forEach((i) => (map[i.id] = i));
     return map;
   }, [menuItems]);
+
+  // Пока добавляем позиции к уже отправленному заказу — сколько каждого блюда
+  // в нем уже есть, чтобы показать это в сетке (не добавляется автоматически в выбор)
+  const alreadyOrderedQty = useMemo(() => {
+    if (!addToOrderId) return {};
+    const target = allActiveOrders.find((e) => e.id === addToOrderId);
+    if (!target) return {};
+    const map = {};
+    (target.items || []).forEach((i) => {
+      map[i.id] = (map[i.id] || 0) + i.n;
+    });
+    return map;
+  }, [addToOrderId, allActiveOrders]);
 
   const totalCount = Object.values(qty).reduce((a, b) => a + b, 0);
   const totalSum = Object.entries(qty).reduce(
@@ -278,6 +376,8 @@ function OrderScreen({
 
   const changeTable = (delta) => {
     setTableNumber((n) => Math.min(99, Math.max(1, n + delta)));
+    setQty({});
+    setComments({});
   };
 
   const openComment = (item) => {
@@ -306,8 +406,10 @@ function OrderScreen({
 
   // Стол считается занятым, если по нему есть активный (еще не выполненный) заказ
   // У ЛЮБОГО официанта — повторно оформить заказ на него нельзя, пока его не выполнят или не отменят
+  // Исключение — если сейчас именно к этому заказу и добавляются новые позиции (addToOrderId)
   const activeTableEntry = allActiveOrders.find((e) => e.table === tableNumber);
-  const isTableLocked = Boolean(activeTableEntry);
+  const isTableLocked =
+    Boolean(activeTableEntry) && activeTableEntry.id !== addToOrderId;
 
   const formatDate = (iso) =>
     new Date(iso).toLocaleString("ru-RU", {
@@ -316,6 +418,71 @@ function OrderScreen({
       hour: "2-digit",
       minute: "2-digit",
     });
+
+  // Тикающие "часы" — раз в полминуты пересчитываем, сколько прошло с момента
+  // создания каждого активного заказа, чтобы подсветить просроченные (20+ мин)
+  const OVERDUE_MINUTES = 20;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getElapsedMinutes = (iso) =>
+    Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000));
+
+  const formatElapsed = (minutes) => {
+    if (minutes < 60) return `${minutes} мин`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h} ч ${m} мин`;
+  };
+
+  // Звук + вибрация один раз в момент, когда заказ становится просроченным (20+ мин),
+  // чтобы официант не пропустил это, не заходя каждый раз в список заказов
+  const notifiedOverdueRef = useRef(new Set());
+  const playOverdueAlert = () => {
+    try {
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    } catch (e) {
+      // не критично
+    }
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.55);
+      oscillator.onended = () => ctx.close();
+    } catch (e) {
+      // звук не критичен для работы приложения
+    }
+  };
+
+  useEffect(() => {
+    const activeIds = new Set(activeOrders.map((o) => o.id));
+    notifiedOverdueRef.current.forEach((id) => {
+      if (!activeIds.has(id)) notifiedOverdueRef.current.delete(id);
+    });
+    activeOrders.forEach((entry) => {
+      if (
+        getElapsedMinutes(entry.date) >= OVERDUE_MINUTES &&
+        !notifiedOverdueRef.current.has(entry.id)
+      ) {
+        notifiedOverdueRef.current.add(entry.id);
+        playOverdueAlert();
+      }
+    });
+  }, [now, activeOrders]);
 
   return (
     <div style={styles.app}>
@@ -345,8 +512,9 @@ function OrderScreen({
               }}
             >
               <button
-                style={styles.tableBtn}
+                style={{ ...styles.tableBtn, opacity: addToOrderId ? 0.35 : 1 }}
                 onClick={() => changeTable(-1)}
+                disabled={Boolean(addToOrderId)}
                 aria-label="Предыдущий стол"
               >
                 <Minus size={16} strokeWidth={3} />
@@ -360,13 +528,26 @@ function OrderScreen({
                 №{tableNumber}
               </span>
               <button
-                style={styles.tableBtn}
+                style={{ ...styles.tableBtn, opacity: addToOrderId ? 0.35 : 1 }}
                 onClick={() => changeTable(1)}
+                disabled={Boolean(addToOrderId)}
                 aria-label="Следующий стол"
               >
                 <Plus size={16} strokeWidth={3} />
               </button>
             </div>
+            <button
+              style={{
+                ...styles.historyBtn,
+                ...(showSearch ? styles.searchBtnActive : {}),
+              }}
+              onClick={() =>
+                showSearch ? closeSearch() : setShowSearch(true)
+              }
+              aria-label="Поиск блюд"
+            >
+              <Search size={16} strokeWidth={2.2} />
+            </button>
             <button
               style={styles.historyBtn}
               onClick={() => setShowOrders(true)}
@@ -379,24 +560,44 @@ function OrderScreen({
             </button>
           </div>
         </div>
-        <div style={styles.tabs}>
-          {categories.map((cat) => {
-            const Icon = getCategoryIcon(cat.icon);
-            return (
-              <button
-                key={cat.id}
-                style={{
-                  ...styles.tab,
-                  ...(category === cat.id ? styles.tabActive : {}),
-                }}
-                onClick={() => switchCategory(cat.id)}
-              >
-                <Icon size={16} strokeWidth={2.2} />
-                {cat.name}
-              </button>
-            );
-          })}
-        </div>
+        {showSearch ? (
+          <div style={styles.searchRow}>
+            <Search size={15} strokeWidth={2.2} color="#8a8480" />
+            <input
+              style={styles.searchInput}
+              placeholder="Поиск блюда..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+            />
+            <button
+              style={styles.searchCloseBtn}
+              onClick={closeSearch}
+              aria-label="Закрыть поиск"
+            >
+              <X size={16} strokeWidth={2.2} />
+            </button>
+          </div>
+        ) : (
+          <div style={styles.tabs}>
+            {sortedCategories.map((cat) => {
+              const Icon = getCategoryIcon(cat.icon);
+              return (
+                <button
+                  key={cat.id}
+                  style={{
+                    ...styles.tab,
+                    ...(category === cat.id ? styles.tabActive : {}),
+                  }}
+                  onClick={() => switchCategory(cat.id)}
+                >
+                  <Icon size={16} strokeWidth={2.2} />
+                  {cat.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Grid */}
@@ -406,12 +607,13 @@ function OrderScreen({
           style={{
             ...styles.grid,
             gridTemplateColumns: `repeat(${columns}, 1fr)`,
-            gridAutoRows: `${CARD_H}px`,
+            gridAutoRows: `${rowHeight}px`,
           }}
         >
           {pageItems.map((item) => {
             const n = qty[item.id] || 0;
             const stopped = Boolean(item.stopped);
+            const alreadyN = alreadyOrderedQty[item.id] || 0;
             return (
               <div
                 key={item.id}
@@ -423,7 +625,14 @@ function OrderScreen({
               >
                 <div style={styles.cardTop}>
                   <div style={styles.cardNameRow}>
-                    <div style={styles.cardName}>{item.name}</div>
+                    <div style={styles.cardName}>
+                      {item.name}
+                      {alreadyN > 0 && (
+                        <span style={styles.alreadyOrderedBadge}>
+                          уже {alreadyN}
+                        </span>
+                      )}
+                    </div>
                     <button
                       style={{
                         ...styles.commentBtn,
@@ -433,9 +642,9 @@ function OrderScreen({
                       aria-label={`Комментарий к ${item.name}`}
                     >
                       {comments[item.id] ? (
-                        <MessageSquareText size={15} strokeWidth={2.2} />
+                        <MessageSquareText size={13} strokeWidth={2.2} />
                       ) : (
-                        <MessageSquarePlus size={15} strokeWidth={2.2} />
+                        <MessageSquarePlus size={13} strokeWidth={2.2} />
                       )}
                     </button>
                   </div>
@@ -457,7 +666,7 @@ function OrderScreen({
                       disabled={n === 0}
                       aria-label={`Убрать ${item.name}`}
                     >
-                      <Minus size={18} strokeWidth={3} />
+                      <Minus size={15} strokeWidth={3} />
                     </button>
                     <span style={styles.stepNum}>{n}</span>
                     <button
@@ -465,7 +674,7 @@ function OrderScreen({
                       onClick={() => changeQty(item.id, 1)}
                       aria-label={`Добавить ${item.name}`}
                     >
-                      <Plus size={18} strokeWidth={3} />
+                      <Plus size={15} strokeWidth={3} />
                     </button>
                   </div>
                 )}
@@ -510,14 +719,30 @@ function OrderScreen({
       </div>
 
       {/* Bottom confirm bar */}
-      {isTableLocked && (
-        <div style={styles.lockWarning}>
-          Стол №{tableNumber} уже занят активным заказом
-          {activeTableEntry?.waiter && activeTableEntry.waiter !== waiterName
-            ? ` (${activeTableEntry.waiter})`
-            : ""}{" "}
-          — его нужно выполнить или отменить, чтобы оформить новый
+      {addToOrderId ? (
+        <div style={styles.addToOrderBanner}>
+          <span>Добавление к заказу стола №{tableNumber}</span>
+          <button
+            style={styles.addToOrderCancelBtn}
+            onClick={() => {
+              setAddToOrderId(null);
+              setQty({});
+              setComments({});
+            }}
+          >
+            Отменить
+          </button>
         </div>
+      ) : (
+        isTableLocked && (
+          <div style={styles.lockWarning}>
+            Стол №{tableNumber} уже занят активным заказом
+            {activeTableEntry?.waiter && activeTableEntry.waiter !== waiterName
+              ? ` (${activeTableEntry.waiter})`
+              : ""}{" "}
+            — его нужно выполнить или отменить, чтобы оформить новый
+          </div>
+        )
       )}
       <div style={styles.footer}>
         <div style={styles.footerInfo}>
@@ -534,7 +759,11 @@ function OrderScreen({
           disabled={totalCount === 0 || isTableLocked}
           onClick={() => setShowSummary(true)}
         >
-          {isTableLocked ? "Стол занят" : "Подтвердить заказ"}
+          {isTableLocked
+            ? "Стол занят"
+            : addToOrderId
+            ? "Добавить к заказу"
+            : "Подтвердить заказ"}
         </button>
       </div>
 
@@ -631,14 +860,31 @@ function OrderScreen({
                 </p>
               ) : (
                 <div style={styles.modalList}>
-                  {activeOrders.map((entry) => (
-                    <div key={entry.id} style={styles.historyRow}>
+                  {activeOrders.map((entry) => {
+                    const elapsed = getElapsedMinutes(entry.date);
+                    const overdue = elapsed >= OVERDUE_MINUTES;
+                    return (
+                    <div
+                      key={entry.id}
+                      style={{
+                        ...styles.historyRow,
+                        ...(overdue ? styles.historyRowOverdue : {}),
+                      }}
+                    >
                       <button
                         style={styles.historyRowMain}
                         onClick={() => setViewingOrder(entry)}
                       >
                         <span style={styles.historyTable}>
                           Стол №{entry.table}
+                          <span
+                            style={{
+                              ...styles.elapsedBadge,
+                              ...(overdue ? styles.elapsedBadgeOverdue : {}),
+                            }}
+                          >
+                            {formatElapsed(elapsed)}
+                          </span>
                         </span>
                         <span style={styles.historyMeta}>
                           {formatDate(entry.date)} · {entry.itemsCount} поз. ·{" "}
@@ -651,6 +897,13 @@ function OrderScreen({
                         aria-label={`Состав заказа стола ${entry.table}`}
                       >
                         <Eye size={17} strokeWidth={2.2} />
+                      </button>
+                      <button
+                        style={styles.addToOrderBtn}
+                        onClick={() => startAddToOrder(entry)}
+                        aria-label={`Добавить к заказу стола ${entry.table}`}
+                      >
+                        <Plus size={17} strokeWidth={2.4} />
                       </button>
                       <button
                         style={styles.completeBtn}
@@ -667,7 +920,8 @@ function OrderScreen({
                         <Trash2 size={17} strokeWidth={2.2} />
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             ) : orderHistory.length === 0 ? (
@@ -772,20 +1026,33 @@ function OrderScreen({
             </div>
 
             <div style={styles.modalList}>
-              {(viewingOrder.items || []).map((i) => (
-                <div key={i.id} style={styles.modalRowWrap}>
-                  <div style={styles.modalRow}>
-                    <span style={styles.modalRowQty}>{i.n}×</span>
-                    <span style={styles.modalRowName}>{i.name}</span>
-                    <span style={styles.modalRowPrice}>
-                      {money(i.price * i.n)} сом
-                    </span>
-                  </div>
-                  {i.comment && (
-                    <div style={styles.modalRowComment}>💬 {i.comment}</div>
-                  )}
-                </div>
-              ))}
+              {(() => {
+                const orderItems = viewingOrder.items || [];
+                const maxBatch = Math.max(
+                  0,
+                  ...orderItems.map((i) => i.batch || 0)
+                );
+                return orderItems.map((i, idx) => {
+                  const isNew = maxBatch > 0 && (i.batch || 0) === maxBatch;
+                  return (
+                    <div key={`${i.id}-${idx}`} style={styles.modalRowWrap}>
+                      <div style={styles.modalRow}>
+                        <span style={styles.modalRowQty}>{i.n}×</span>
+                        <span style={styles.modalRowName}>{i.name}</span>
+                        {isNew && (
+                          <span style={styles.newBadge}>Новое</span>
+                        )}
+                        <span style={styles.modalRowPrice}>
+                          {money(i.price * i.n)} сом
+                        </span>
+                      </div>
+                      {i.comment && (
+                        <div style={styles.modalRowComment}>💬 {i.comment}</div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
             <div style={styles.modalTotal}>
               <span>Итого</span>
@@ -801,7 +1068,13 @@ function OrderScreen({
           <div style={styles.modal}>
             <div style={styles.modalHeader}>
               <span style={styles.modalTitle}>
-                {sent ? "Заказ отправлен" : "Проверьте заказ"}
+                {sent
+                  ? addToOrderId
+                    ? "Добавлено к заказу"
+                    : "Заказ отправлен"
+                  : addToOrderId
+                  ? "Проверьте добавляемые позиции"
+                  : "Проверьте заказ"}
               </span>
               <button
                 style={styles.closeBtn}
@@ -841,25 +1114,44 @@ function OrderScreen({
                 <button
                   style={styles.sendBtn}
                   onClick={() => {
-                    addActiveOrder({
-                      id: `${Date.now()}`,
-                      table: tableNumber,
-                      date: new Date().toISOString(),
-                      itemsCount: totalCount,
-                      total: totalSum,
-                      items: selectedList.map((i) => ({
-                        id: i.id,
-                        name: i.name,
-                        price: i.price,
-                        n: i.n,
-                        comment: comments[i.id] || null,
-                      })),
-                    });
+                    // batch — номер "захода": 0 у изначально отправленного заказа,
+                    // растет с каждым довеском, чтобы отличать уже приготовленное от нового
+                    const existing = addToOrderId
+                      ? allActiveOrders.find((e) => e.id === addToOrderId)
+                      : null;
+                    const batch = existing
+                      ? Math.max(0, ...existing.items.map((i) => i.batch || 0)) + 1
+                      : 0;
+                    const newItems = selectedList.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      price: i.price,
+                      n: i.n,
+                      comment: comments[i.id] || null,
+                      batch,
+                    }));
+                    if (addToOrderId) {
+                      appendToActiveOrder(
+                        addToOrderId,
+                        newItems,
+                        totalCount,
+                        totalSum
+                      );
+                    } else {
+                      addActiveOrder({
+                        id: `${Date.now()}`,
+                        table: tableNumber,
+                        date: new Date().toISOString(),
+                        itemsCount: totalCount,
+                        total: totalSum,
+                        items: newItems,
+                      });
+                    }
                     setSent(true);
                   }}
                 >
                   <Check size={18} strokeWidth={2.5} />
-                  Отправить на кухню/бар
+                  {addToOrderId ? "Добавить к заказу" : "Отправить на кухню/бар"}
                 </button>
               </>
             ) : (
@@ -868,12 +1160,16 @@ function OrderScreen({
                   <Check size={28} strokeWidth={3} />
                 </div>
                 <p style={styles.sentText}>
-                  Заказ на {totalCount} позиций передан. Стол №{tableNumber}.
+                  {addToOrderId
+                    ? `Добавлено ${totalCount} позиций к заказу стола №${tableNumber}.`
+                    : `Заказ на ${totalCount} позиций передан. Стол №${tableNumber}.`}
                 </p>
                 <button
                   style={styles.newOrderBtn}
                   onClick={() => {
                     setQty({});
+                    setComments({});
+                    setAddToOrderId(null);
                     setShowSummary(false);
                     setSent(false);
                   }}
@@ -1079,6 +1375,24 @@ export default function App() {
     setCachedRestaurantId(found.id);
     setRestaurant(found);
   };
+
+  // Пока официант работает — периодически подтягиваем актуальное меню/статус
+  // кафе из базы. Так правки, сделанные владельцем/админом (меню, стоп-лист,
+  // включение/отключение), доходят до официанта сами, без перезахода на сайт.
+  const restaurantId = restaurant?.id;
+  useEffect(() => {
+    if (!restaurantId) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const { restaurant: found, error } = await fetchRestaurantById(restaurantId);
+      if (cancelled || error || !found) return;
+      setRestaurant((r) => (r ? { ...r, ...found } : r));
+    }, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [restaurantId]);
 
   useEffect(() => {
     if (restaurant && restaurant.name) {
@@ -1346,6 +1660,30 @@ const styles = {
     padding: "8px 16px",
     textAlign: "center",
   },
+  addToOrderBanner: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: GOLD,
+    background: "rgba(201,166,90,0.12)",
+    borderTop: "1px solid #3a3532",
+    padding: "8px 16px",
+    textAlign: "center",
+  },
+  addToOrderCancelBtn: {
+    border: "1px solid #3a3532",
+    background: "transparent",
+    color: "#c9c4bf",
+    borderRadius: 6,
+    padding: "3px 9px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
   headerLeft: {
     display: "flex",
     alignItems: "center",
@@ -1421,6 +1759,37 @@ const styles = {
     justifyContent: "center",
     lineHeight: 1,
   },
+  searchBtnActive: {
+    borderColor: GOLD,
+    color: GOLD,
+  },
+  searchRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    background: PANEL,
+    border: "1px solid #3a3532",
+    borderRadius: 9,
+    padding: "6px 10px",
+  },
+  searchInput: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    color: PAPER,
+    fontSize: 13.5,
+  },
+  searchCloseBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    border: "none",
+    color: "#8a8480",
+    cursor: "pointer",
+    padding: 2,
+  },
   ordersTabs: {
     display: "flex",
     gap: 8,
@@ -1455,6 +1824,19 @@ const styles = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  addToOrderBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    border: "1px solid #3a3532",
+    background: "transparent",
+    color: "#9a938d",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
   historyEmpty: {
     fontSize: 14,
     color: "#8a8480",
@@ -1467,6 +1849,13 @@ const styles = {
     gap: 8,
     borderBottom: "1px solid #35312e",
     paddingBottom: 10,
+  },
+  historyRowOverdue: {
+    background: "rgba(179,86,79,0.12)",
+    borderBottom: "1px solid rgba(179,86,79,0.4)",
+    borderRadius: 8,
+    padding: "6px 6px 10px",
+    margin: "0 -6px",
   },
   historyRowMain: {
     flex: 1,
@@ -1481,9 +1870,24 @@ const styles = {
     cursor: "pointer",
   },
   historyTable: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
     fontSize: 15,
     fontWeight: 700,
     color: PAPER,
+  },
+  elapsedBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#9a938d",
+    background: "#1B1918",
+    borderRadius: 20,
+    padding: "2px 8px",
+  },
+  elapsedBadgeOverdue: {
+    color: "#e07a72",
+    background: "rgba(179,86,79,0.18)",
   },
   historyMeta: {
     fontSize: 12.5,
@@ -1615,14 +2019,17 @@ const styles = {
     display: "flex",
     gap: 6,
     paddingBottom: 10,
+    overflowX: "auto",
+    overflowY: "hidden",
+    WebkitOverflowScrolling: "touch",
   },
   tab: {
-    flex: 1,
+    flex: "0 0 auto",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    padding: "10px 0",
+    padding: "10px 14px",
     borderRadius: 10,
     border: "1px solid #3a3532",
     background: "transparent",
@@ -1656,8 +2063,8 @@ const styles = {
   card: {
     background: PANEL,
     border: "1px solid #35312e",
-    borderRadius: 12,
-    padding: "12px 12px 10px",
+    borderRadius: 10,
+    padding: "8px 9px 7px",
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -1682,19 +2089,19 @@ const styles = {
     padding: "6px 0",
   },
   cardTop: {
-    marginBottom: 10,
+    marginBottom: 4,
   },
   cardNameRow: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 6,
-    marginBottom: 5,
+    gap: 4,
+    marginBottom: 2,
   },
   cardName: {
-    fontSize: 14.5,
+    fontSize: 12.5,
     fontWeight: 600,
-    lineHeight: 1.25,
+    lineHeight: 1.2,
     color: PAPER,
     display: "-webkit-box",
     WebkitLineClamp: 2,
@@ -1703,9 +2110,9 @@ const styles = {
   },
   commentBtn: {
     flexShrink: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 5,
     border: "none",
     background: "transparent",
     color: "#6f6a65",
@@ -1718,32 +2125,43 @@ const styles = {
     color: GOLD,
   },
   cardComment: {
-    fontSize: 11.5,
+    fontSize: 10.5,
     color: GOLD,
     fontStyle: "italic",
-    marginBottom: 6,
-    lineHeight: 1.3,
+    marginBottom: 3,
+    lineHeight: 1.2,
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
   },
   cardPrice: {
-    fontSize: 14.5,
+    fontSize: 12.5,
     color: GOLD,
     fontWeight: 700,
+  },
+  alreadyOrderedBadge: {
+    display: "inline-block",
+    marginLeft: 6,
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#7fae7a",
+    background: "rgba(127,174,122,0.15)",
+    borderRadius: 20,
+    padding: "1px 6px",
+    whiteSpace: "nowrap",
   },
   stepper: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     background: "#1B1918",
-    borderRadius: 8,
-    padding: "4px 6px",
+    borderRadius: 7,
+    padding: "3px 5px",
   },
   stepBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
     border: "none",
     background: "#33302d",
     color: PAPER,
@@ -1753,9 +2171,9 @@ const styles = {
     cursor: "pointer",
   },
   stepNum: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: 700,
-    minWidth: 22,
+    minWidth: 20,
     textAlign: "center",
     fontVariantNumeric: "tabular-nums",
   },
@@ -1896,6 +2314,14 @@ const styles = {
     color: GOLD,
     fontStyle: "italic",
     marginTop: 3,
+  },
+  newBadge: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: GOLD,
+    background: "rgba(201,166,90,0.15)",
+    borderRadius: 20,
+    padding: "2px 7px",
   },
   commentModal: {
     width: "100%",

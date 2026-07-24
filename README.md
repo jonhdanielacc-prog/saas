@@ -56,6 +56,9 @@ create policy "public read orders" on orders for select using (true);
 create policy "public insert orders" on orders for insert with check (true);
 create policy "public update orders" on orders for update using (true);
 create policy "public delete orders" on orders for delete using (true);
+
+-- Realtime: официанты видят заказы друг друга мгновенно, без задержки опроса
+alter publication supabase_realtime add table orders;
 ```
 
 3. Project Settings → API → скопировать **Project URL** и **anon public**
