@@ -490,7 +490,7 @@ function OrderScreen({
   }, [now, activeOrders]);
 
   return (
-    <div style={styles.app}>
+    <div className="app-shell" style={styles.app}>
       {/* Header — компактный, один ряд */}
       <div style={styles.header}>
         <div style={styles.headerTop}>
@@ -1194,7 +1194,7 @@ function OrderScreen({
 
 function SetupNotice() {
   return (
-    <div style={wrapperStyles.center}>
+    <div className="app-shell-min" style={wrapperStyles.center}>
       <div style={wrapperStyles.card}>
         <h2 style={wrapperStyles.title}>Нужно подключить базу данных</h2>
         <p style={wrapperStyles.text}>
@@ -1213,7 +1213,7 @@ function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName }) {
   const [custom, setCustom] = useState("");
 
   return (
-    <div style={wrapperStyles.center}>
+    <div className="app-shell-min" style={wrapperStyles.center}>
       <div style={wrapperStyles.card}>
         <h2 style={wrapperStyles.title}>Кто вы?</h2>
         <p style={wrapperStyles.text}>
@@ -1278,7 +1278,7 @@ function PinScreen({ onResolved }) {
   };
 
   return (
-    <div style={wrapperStyles.center}>
+    <div className="app-shell-min" style={wrapperStyles.center}>
       <div style={wrapperStyles.card}>
         <h2 style={wrapperStyles.title}>Вход по PIN-коду</h2>
         <p style={wrapperStyles.text}>
@@ -1471,7 +1471,6 @@ export default function App() {
 
 const wrapperStyles = {
   center: {
-    minHeight: "100vh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1607,7 +1606,6 @@ const styles = {
       "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     background: INK,
     color: PAPER,
-    height: "100vh",
     maxWidth: 480,
     margin: "0 auto",
     display: "flex",

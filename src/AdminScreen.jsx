@@ -429,7 +429,7 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
   ];
 
   return (
-    <div style={styles.app}>
+    <div className="app-shell-min" style={styles.app}>
       <div style={styles.header}>
         <div style={styles.waiterRow}>
           <div style={styles.waiterBadge}>
@@ -997,7 +997,6 @@ const styles = {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     background: INK,
     color: PAPER,
-    minHeight: "100vh",
     maxWidth: 480,
     margin: "0 auto",
     display: "flex",

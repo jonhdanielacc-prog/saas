@@ -20,7 +20,7 @@ export default function OwnerGate() {
 
   if (!isOwnerPasswordConfigured()) {
     return (
-      <div style={styles.center}>
+      <div className="app-shell-min" style={styles.center}>
         <div style={styles.card}>
           <h2 style={styles.title}>Панель не настроена</h2>
           <p style={styles.text}>
@@ -44,7 +44,7 @@ export default function OwnerGate() {
     };
 
     return (
-      <div style={styles.center}>
+      <div className="app-shell-min" style={styles.center}>
         <div style={styles.card}>
           <div style={styles.lockIcon}>
             <Lock size={20} strokeWidth={2.2} />
@@ -87,7 +87,6 @@ export default function OwnerGate() {
 
 const styles = {
   center: {
-    minHeight: "100vh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

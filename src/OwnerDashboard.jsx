@@ -198,14 +198,14 @@ export default function OwnerDashboard({ onLock }) {
 
   if (restaurants === null) {
     return (
-      <div style={styles.app}>
+      <div className="app-shell-min" style={styles.app}>
         <div style={styles.loadingBox}>Загрузка...</div>
       </div>
     );
   }
 
   return (
-    <div style={styles.app}>
+    <div className="app-shell-min" style={styles.app}>
       <div style={styles.header}>
         <div style={styles.headerTop}>
           <div style={styles.brand}>
@@ -632,7 +632,6 @@ const styles = {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     background: INK,
     color: PAPER,
-    minHeight: "100vh",
     maxWidth: 480,
     margin: "0 auto",
   },

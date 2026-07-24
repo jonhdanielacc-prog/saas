@@ -11,6 +11,37 @@ body,
   overscroll-behavior: none;
 }
 
+html,
+body {
+  /* На телефоне без этого страница иногда остается скроллящейся "под"
+     приложением (адресная строка браузера меняет высоту видимой области) */
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
 body {
   background: #1b1918;
+}
+
+/* 100vh на мобильных не учитывает скрывающуюся адресную строку — из-за
+   этого экран оказывается выше видимой области и появляется остаточный
+   скролл. 100dvh (dynamic viewport height) считает реальную видимую высоту. */
+.app-shell {
+  height: 100vh;
+}
+@supports (height: 100dvh) {
+  .app-shell {
+    height: 100dvh;
+  }
+}
+
+.app-shell-min {
+  min-height: 100vh;
+}
+@supports (height: 100dvh) {
+  .app-shell-min {
+    min-height: 100dvh;
+  }
 }
