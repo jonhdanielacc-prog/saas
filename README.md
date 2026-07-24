@@ -59,6 +59,13 @@ create policy "public delete orders" on orders for delete using (true);
 
 -- Realtime: официанты видят заказы друг друга мгновенно, без задержки опроса
 alter publication supabase_realtime add table orders;
+
+-- Пробный период и продление подписки. NULL в trial_ends_at у уже
+-- существующих кафе означает "без ограничения по времени" — доступ никогда
+-- не блокируется. Новые кафе (через панель владельца или push-menu)
+-- получают trial_ends_at = дата создания + 5 дней автоматически.
+alter table restaurants add column if not exists trial_ends_at timestamptz;
+alter table restaurants add column if not exists paid_until timestamptz;
 ```
 
 3. Project Settings → API → скопировать **Project URL** и **anon public**

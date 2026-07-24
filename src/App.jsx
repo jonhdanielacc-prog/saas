@@ -6,6 +6,7 @@ import {
   setCachedRestaurantId,
   fetchRestaurantByPin,
   fetchRestaurantById,
+  getAccessStatus,
 } from "./restaurant";
 import { iconByKey } from "./menuIcons";
 import AdminMenuGate from "./AdminMenuEditor";
@@ -1209,7 +1210,7 @@ function SetupNotice() {
   );
 }
 
-function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName }) {
+function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName, trialInfo }) {
   const [custom, setCustom] = useState("");
 
   return (
@@ -1220,6 +1221,7 @@ function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName }) {
           {restaurantName} · выберите свое имя — под ним будут видны только
           ваши активные заказы. Историю заказов видят все.
         </p>
+        <TrialBanner trialInfo={trialInfo} />
         <div style={wrapperStyles.namesGrid}>
           {WAITER_NAMES.map((name) => (
             <button
@@ -1257,6 +1259,45 @@ function WaiterPicker({ onPick, onSwitchCafe, onAdmin, restaurantName }) {
       </div>
     </div>
   );
+}
+
+// Склонение "день/дня/дней" под число — иначе "5 день" режет глаз
+function pluralDays(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "дня";
+  return "дней";
+}
+
+// Баннер пробного периода/подписки — показывается на экране выбора официанта
+// и у администратора. Ничего не рендерит, если для кафе не включен трекинг
+// пробного периода (trialInfo.blocked === false и нет ни inTrial, ни paidUntil).
+function TrialBanner({ trialInfo }) {
+  if (!trialInfo) return null;
+  if (trialInfo.inTrial) {
+    return (
+      <div
+        style={{
+          ...wrapperStyles.trialBanner,
+          ...(trialInfo.endingSoon ? wrapperStyles.trialBannerUrgent : {}),
+        }}
+      >
+        {trialInfo.endingSoon
+          ? "⏳ Пробный период заканчивается сегодня — завтра доступ будет отключён, если не продлить подписку."
+          : `⏳ Пробный период: осталось ${trialInfo.daysLeft} ${pluralDays(trialInfo.daysLeft)}.`}
+      </div>
+    );
+  }
+  if (trialInfo.paidUntil) {
+    return (
+      <div style={wrapperStyles.trialBannerPaid}>
+        Подписка активна до{" "}
+        {new Date(trialInfo.paidUntil).toLocaleDateString("ru-RU")}.
+      </div>
+    );
+  }
+  return null;
 }
 
 function PinScreen({ onResolved }) {
@@ -1437,6 +1478,7 @@ export default function App() {
   if (!isSupabaseConfigured) return <SetupNotice />;
   if (restaurant === undefined) return null; // проверяем кэш — доля секунды
   if (restaurant === null) return <PinScreen onResolved={onPinResolved} />;
+  const trialInfo = getAccessStatus(restaurant);
   if (adminMode)
     return (
       <AdminMenuGate
@@ -1444,6 +1486,7 @@ export default function App() {
         restaurantName={restaurant.name}
         restaurantPin={restaurant.pin}
         menu={restaurant.menu || { categories: [], items: [] }}
+        trialInfo={trialInfo}
         onExit={() => setAdminMode(false)}
         onMenuUpdated={(menu) => setRestaurant((r) => ({ ...r, menu }))}
       />
@@ -1455,6 +1498,7 @@ export default function App() {
         onSwitchCafe={switchCafe}
         onAdmin={() => setAdminMode(true)}
         restaurantName={restaurant.name}
+        trialInfo={trialInfo}
       />
     );
   return (
@@ -1498,6 +1542,31 @@ const wrapperStyles = {
     color: "#9a938d",
     lineHeight: 1.5,
     margin: "0 0 20px",
+  },
+  trialBanner: {
+    fontSize: 12.5,
+    color: "#C9982E",
+    background: "rgba(201,152,46,0.12)",
+    border: "1px solid rgba(201,152,46,0.4)",
+    borderRadius: 10,
+    padding: "9px 12px",
+    lineHeight: 1.4,
+    margin: "-8px 0 18px",
+  },
+  trialBannerUrgent: {
+    color: "#e07a72",
+    background: "rgba(179,86,79,0.14)",
+    border: "1px solid rgba(179,86,79,0.5)",
+  },
+  trialBannerPaid: {
+    fontSize: 12,
+    color: "#7fbf8f",
+    background: "rgba(127,191,143,0.1)",
+    border: "1px solid rgba(127,191,143,0.35)",
+    borderRadius: 10,
+    padding: "8px 12px",
+    lineHeight: 1.4,
+    margin: "-8px 0 18px",
   },
   namesGrid: {
     display: "grid",

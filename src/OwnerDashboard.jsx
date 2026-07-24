@@ -15,13 +15,48 @@ import {
   Store,
   LogOut,
   RefreshCcw,
+  CalendarPlus,
 } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import { validateMenu, isValidCafeId } from "../scripts/menu-utils.mjs";
 import { lockOwner } from "./ownerAuth";
 import { ICON_OPTIONS, iconByKey } from "./menuIcons";
+import { getAccessStatus } from "./restaurant";
 
 const money = (n) => (n || 0).toLocaleString("ru-RU");
+
+const TRIAL_DAYS = 5;
+const EXTEND_DAYS = 30;
+
+function pluralDays(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "дня";
+  return "дней";
+}
+
+// Короткое описание статуса пробного периода/подписки для строки кафе в панели.
+function accessLabel(restaurant) {
+  const access = getAccessStatus(restaurant);
+  if (!restaurant.trial_ends_at) return null; // трекинг пробного периода не включен
+  if (access.blocked) return { text: "Пробный период истёк", tone: "danger" };
+  if (access.inTrial) {
+    return {
+      text: access.endingSoon
+        ? "Пробный период: последний день"
+        : `Пробный период: ${access.daysLeft} ${pluralDays(access.daysLeft)}`,
+      tone: access.endingSoon ? "danger" : "warn",
+    };
+  }
+  if (access.paidUntil) {
+    return {
+      text: `Оплачено до ${new Date(access.paidUntil).toLocaleDateString("ru-RU")}`,
+      tone: "ok",
+    };
+  }
+  return null;
+}
 
 // 5 символов, буквы + цифры (без похожих друг на друга O/0, I/1/L) — сложнее
 // подобрать случайно, чем старый 5-значный числовой PIN, и всё ещё легко
@@ -75,7 +110,7 @@ export default function OwnerDashboard({ onLock }) {
   const loadAll = async () => {
     const { data, error } = await supabase
       .from("restaurants")
-      .select("id, name, pin, status, menu, created_at")
+      .select("id, name, pin, status, menu, created_at, trial_ends_at, paid_until")
       .order("created_at", { ascending: false });
     if (error) {
       setLoadError(error.message);
@@ -120,6 +155,32 @@ export default function OwnerDashboard({ onLock }) {
     if (error) {
       setLoadError(error.message);
       loadAll(); // откатываем интерфейс к тому, что реально в базе
+    }
+  };
+
+  // Продлить на месяц — от текущей даты окончания оплаты, если она еще не
+  // прошла (продление "про запас"), иначе от сегодня. Работает и в пробном
+  // периоде (продлевает заранее), и после его окончания.
+  const extendSubscription = async (id) => {
+    const target = restaurants.find((r) => r.id === id);
+    const now = Date.now();
+    const currentPaidUntil = target.paid_until
+      ? new Date(target.paid_until).getTime()
+      : 0;
+    const base = currentPaidUntil > now ? currentPaidUntil : now;
+    const nextPaidUntil = new Date(
+      base + EXTEND_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+    setRestaurants((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, paid_until: nextPaidUntil } : r))
+    );
+    const { error } = await supabase
+      .from("restaurants")
+      .update({ paid_until: nextPaidUntil })
+      .eq("id", id);
+    if (error) {
+      setLoadError(error.message);
+      loadAll();
     }
   };
 
@@ -172,6 +233,9 @@ export default function OwnerDashboard({ onLock }) {
           pin: cafe.pin,
           status: "active",
           menu: cafe.menu,
+          trial_ends_at: new Date(
+            Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000
+          ).toISOString(),
         },
       ]);
       if (error) {
@@ -286,6 +350,20 @@ export default function OwnerDashboard({ onLock }) {
                   <div style={styles.cafeMeta}>
                     id: {r.id} · {r.menu.categories.length} рубрик · {r.menu.items.length} блюд
                   </div>
+                  {accessLabel(r) && (
+                    <div
+                      style={{
+                        ...styles.trialLabel,
+                        ...(accessLabel(r).tone === "danger"
+                          ? styles.trialLabelDanger
+                          : accessLabel(r).tone === "ok"
+                          ? styles.trialLabelOk
+                          : styles.trialLabelWarn),
+                      }}
+                    >
+                      {accessLabel(r).text}
+                    </div>
+                  )}
                 </div>
                 <div style={styles.pinBox}>
                   <span style={styles.pinLabel}>PIN</span>
@@ -313,6 +391,16 @@ export default function OwnerDashboard({ onLock }) {
                 <button style={styles.actionIcon} onClick={() => copyLink(r)} aria-label="Ссылка для входа">
                   {copiedLinkId === r.id ? <Check size={15} strokeWidth={2.2} /> : <LinkIcon size={15} strokeWidth={2.2} />}
                 </button>
+                {r.trial_ends_at && (
+                  <button
+                    style={styles.actionIcon}
+                    onClick={() => extendSubscription(r.id)}
+                    aria-label="Продлить подписку на 1 месяц"
+                    title="Продлить на 1 месяц"
+                  >
+                    <CalendarPlus size={15} strokeWidth={2.2} />
+                  </button>
+                )}
                 <button
                   style={{ ...styles.actionIcon, ...(r.status === "active" ? {} : { borderColor: "#7fbf8f", color: "#7fbf8f" }) }}
                   onClick={() => toggleStatus(r.id)}
@@ -772,6 +860,10 @@ const styles = {
   statusActive: { background: "rgba(127,191,143,0.15)", color: "#7fbf8f" },
   statusDisabled: { background: "rgba(224,122,114,0.15)", color: "#e07a72" },
   cafeMeta: { fontSize: 12, color: "#8a8480", marginTop: 4 },
+  trialLabel: { fontSize: 11.5, fontWeight: 600, marginTop: 5 },
+  trialLabelWarn: { color: GOLD },
+  trialLabelDanger: { color: "#e07a72" },
+  trialLabelOk: { color: "#7fbf8f" },
   pinBox: {
     display: "flex",
     alignItems: "center",

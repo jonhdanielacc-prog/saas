@@ -141,12 +141,15 @@ for (const file of files) {
     }
     updated.push({ id, name, categories: categories.length, items: items.length });
   } else {
-    // Новое кафе — генерируем PIN и создаём запись
+    // Новое кафе — генерируем PIN и создаём запись, с пробным периодом 5 дней
     const pin = generatePin(existingPins);
     existingPins.add(pin);
+    const trialEndsAt = new Date(
+      Date.now() + 5 * 24 * 60 * 60 * 1000
+    ).toISOString();
     const { error } = await supabase
       .from("restaurants")
-      .insert([{ id, name, pin, status: "active", menu }]);
+      .insert([{ id, name, pin, status: "active", menu, trial_ends_at: trialEndsAt }]);
     if (error) {
       skipped.push(`${file} — ошибка создания в базе: ${error.message}`);
       continue;

@@ -12,7 +12,7 @@ const PAPER = "#F4EFE6";
 // официанта, этот PIN не запоминается: спрашивается заново при каждой
 // попытке зайти (см. CLAUDE.md). После входа — экран администратора
 // (AdminScreen): мониторинг заказов, стоп-лист, статистика, меню.
-export default function AdminMenuGate({ restaurantId, restaurantName, restaurantPin, menu, onExit, onMenuUpdated }) {
+export default function AdminMenuGate({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, onExit, onMenuUpdated }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(null);
@@ -69,6 +69,7 @@ export default function AdminMenuGate({ restaurantId, restaurantName, restaurant
       restaurantName={restaurantName}
       restaurantPin={restaurantPin}
       menu={menu}
+      trialInfo={trialInfo}
       onExit={onExit}
       onMenuUpdated={onMenuUpdated}
     />

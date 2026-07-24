@@ -44,7 +44,42 @@ const formatDate = (iso) =>
 // вкладка: требует ЕЩЁ РАЗ ввести PIN кафе, который не запоминается даже
 // в рамках одной сессии администратора — специально, потому что правки
 // меню сразу видят все официанты и клиенты.
-export default function AdminScreen({ restaurantId, restaurantName, restaurantPin, menu, onExit, onMenuUpdated }) {
+// Склонение "день/дня/дней" под число
+function pluralDays(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "дня";
+  return "дней";
+}
+
+function TrialBanner({ trialInfo }) {
+  if (!trialInfo) return null;
+  if (trialInfo.inTrial) {
+    return (
+      <div
+        style={{
+          ...styles.trialBanner,
+          ...(trialInfo.endingSoon ? styles.trialBannerUrgent : {}),
+        }}
+      >
+        {trialInfo.endingSoon
+          ? "⏳ Пробный период заканчивается сегодня — завтра доступ будет отключён, если не продлить подписку."
+          : `⏳ Пробный период: осталось ${trialInfo.daysLeft} ${pluralDays(trialInfo.daysLeft)}.`}
+      </div>
+    );
+  }
+  if (trialInfo.paidUntil) {
+    return (
+      <div style={styles.trialBannerPaid}>
+        Подписка активна до {new Date(trialInfo.paidUntil).toLocaleDateString("ru-RU")}.
+      </div>
+    );
+  }
+  return null;
+}
+
+export default function AdminScreen({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, onExit, onMenuUpdated }) {
   const [tab, setTab] = useState("active"); // active | kitchen | stats | done | stop | menu
 
   const [categories, setCategories] = useState(menu?.categories || []);
@@ -441,6 +476,7 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
             Сменить
           </button>
         </div>
+        <TrialBanner trialInfo={trialInfo} />
         <div style={styles.adminTabs}>
           {tabs.map((t) => (
             <button
@@ -1033,6 +1069,31 @@ const styles = {
     border: "none",
     cursor: "pointer",
     padding: "4px 2px",
+  },
+  trialBanner: {
+    fontSize: 12,
+    color: GOLD,
+    background: "rgba(201,152,46,0.12)",
+    border: "1px solid rgba(201,152,46,0.4)",
+    borderRadius: 10,
+    padding: "8px 10px",
+    lineHeight: 1.4,
+    marginBottom: 10,
+  },
+  trialBannerUrgent: {
+    color: "#e07a72",
+    background: "rgba(179,86,79,0.14)",
+    border: "1px solid rgba(179,86,79,0.5)",
+  },
+  trialBannerPaid: {
+    fontSize: 11.5,
+    color: "#7fbf8f",
+    background: "rgba(127,191,143,0.1)",
+    border: "1px solid rgba(127,191,143,0.35)",
+    borderRadius: 10,
+    padding: "7px 10px",
+    lineHeight: 1.4,
+    marginBottom: 10,
   },
   adminTabs: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10, WebkitOverflowScrolling: "touch" },
   adminTab: {
