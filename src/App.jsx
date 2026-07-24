@@ -180,6 +180,18 @@ function OrderScreen({
     }
   }, []);
 
+  // Если текущая рубрика не существует в меню (черновик со старым id рубрики,
+  // которую переименовали/удалили, либо меню еще не подгрузилось на момент
+  // выбора рубрики по умолчанию) — переключаемся на первую доступную. Без
+  // этого сетка блюд оставалась пустой: ни одна вкладка не была активна, и
+  // отфильтровать блюда было не по чему.
+  useEffect(() => {
+    if (!draftLoaded || !sortedCategories.length) return;
+    if (!sortedCategories.some((c) => c.id === category)) {
+      setCategory(sortedCategories[0].id);
+    }
+  }, [draftLoaded, sortedCategories, category]);
+
   useEffect(() => {
     if (!draftLoaded) return;
     const timeout = setTimeout(() => {
