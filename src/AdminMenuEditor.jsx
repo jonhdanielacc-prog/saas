@@ -12,12 +12,15 @@ const PAPER = "#F4EFE6";
 // официанта, этот PIN не запоминается: спрашивается заново при каждой
 // попытке зайти (см. CLAUDE.md). После входа — экран администратора
 // (AdminScreen): мониторинг заказов, стоп-лист, статистика, меню.
-export default function AdminMenuGate({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, onExit, onMenuUpdated }) {
+export default function AdminMenuGate({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, isDemo, onExit, onMenuUpdated }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(null);
 
-  if (!unlocked) {
+  // Демо-заведения (все, что были в базе до PIN-защиты входа в администратора)
+  // открывают админку сразу — это витрины для показа функционала, без
+  // реальных данных, которые нужно было бы защищать повторным вводом PIN.
+  if (!unlocked && !isDemo) {
     const submit = () => {
       if (pin.trim().toUpperCase() === String(restaurantPin || "").trim().toUpperCase()) {
         setUnlocked(true);
@@ -70,6 +73,7 @@ export default function AdminMenuGate({ restaurantId, restaurantName, restaurant
       restaurantPin={restaurantPin}
       menu={menu}
       trialInfo={trialInfo}
+      isDemo={isDemo}
       onExit={onExit}
       onMenuUpdated={onMenuUpdated}
     />

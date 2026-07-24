@@ -66,6 +66,11 @@ alter publication supabase_realtime add table orders;
 -- получают trial_ends_at = дата создания + 5 дней автоматически.
 alter table restaurants add column if not exists trial_ends_at timestamptz;
 alter table restaurants add column if not exists paid_until timestamptz;
+
+-- Демо-кафе (заведены до появления PIN-защиты входа в администратора) не
+-- спрашивают PIN повторно при входе как администратор и при редактировании
+-- меню — это витрины для показа функционала. Новые кафе всегда is_demo = false.
+alter table restaurants add column if not exists is_demo boolean not null default false;
 ```
 
 3. Project Settings → API → скопировать **Project URL** и **anon public**

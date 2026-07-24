@@ -1500,6 +1500,7 @@ export default function App() {
         restaurantPin={restaurant.pin}
         menu={restaurant.menu || { categories: [], items: [] }}
         trialInfo={trialInfo}
+        isDemo={Boolean(restaurant.is_demo)}
         onExit={() => setAdminMode(false)}
         onMenuUpdated={(menu) => setRestaurant((r) => ({ ...r, menu }))}
       />

@@ -58,14 +58,11 @@ function accessLabel(restaurant) {
   return null;
 }
 
-// 5 символов, буквы + цифры (без похожих друг на друга O/0, I/1/L) — сложнее
-// подобрать случайно, чем старый 5-значный числовой PIN, и всё ещё легко
-// продиктовать/переписать официанту.
-const PIN_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// 5-значный числовой код — просто продиктовать/переписать официанту.
 const generatePin = (existing) => {
   let pin;
   do {
-    pin = Array.from({ length: 5 }, () => PIN_CHARS[Math.floor(Math.random() * PIN_CHARS.length)]).join("");
+    pin = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
   } while (existing.includes(pin));
   return pin;
 };

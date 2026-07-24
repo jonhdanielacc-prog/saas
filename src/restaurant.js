@@ -54,7 +54,8 @@ export function getAccessStatus(restaurant, nowMs = Date.now()) {
   return { blocked: true, message: TRIAL_EXPIRED_MESSAGE };
 }
 
-const RESTAURANT_FIELDS = "id, name, menu, status, pin, trial_ends_at, paid_until";
+const RESTAURANT_FIELDS =
+  "id, name, menu, status, pin, trial_ends_at, paid_until, is_demo";
 
 // Достаёт кафе и его меню по PIN-коду (вводит официант при первом входе).
 // PIN сравнивается без учёта регистра — официанту не нужно следить за

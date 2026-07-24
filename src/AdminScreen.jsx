@@ -79,7 +79,7 @@ function TrialBanner({ trialInfo }) {
   return null;
 }
 
-export default function AdminScreen({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, onExit, onMenuUpdated }) {
+export default function AdminScreen({ restaurantId, restaurantName, restaurantPin, menu, trialInfo, isDemo, onExit, onMenuUpdated }) {
   const [tab, setTab] = useState("active"); // active | kitchen | stats | done | stop | menu
 
   const [categories, setCategories] = useState(menu?.categories || []);
@@ -694,7 +694,7 @@ export default function AdminScreen({ restaurantId, restaurantName, restaurantPi
         )}
 
         {tab === "menu" &&
-          (!menuUnlocked ? (
+          (!menuUnlocked && !isDemo ? (
             <div style={styles.menuLockBox}>
               <div style={styles.menuLockIcon}>
                 <Lock size={22} strokeWidth={2.2} />

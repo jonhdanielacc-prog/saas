@@ -8,6 +8,7 @@
     "build": "vite build",
     "push-menu": "node scripts/push-menu.mjs",
     "reorder-categories": "node scripts/reorder-categories.mjs",
+    "mark-existing-as-demo": "node scripts/mark-existing-as-demo.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
