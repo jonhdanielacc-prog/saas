@@ -22,18 +22,23 @@ const CARD_H = 110; // px, высота карточки блюда — комп
 const MIN_CARD_W = 156; // px, минимальная ширина карточки
 const GRID_GAP = 10; // px, зазор между карточками
 
-// Порядок рубрик для официанта: сначала блюда (иконка utensils/flame), потом
-// бар/напитки (wine/beer/coffee), потом всё остальное — по иконке рубрики,
-// а не по названию (рубрики у каждого кафе свои, но иконка выбирается из
-// фиксированного набора, см. CATEGORY_ICONS/menuIcons.ICON_OPTIONS).
-const CATEGORY_ICON_RANK = {
-  utensils: 0,
-  flame: 0,
-  wine: 1,
-  beer: 1,
-  coffee: 1,
+// Порядок рубрик для официанта: сначала основные блюда, затем всё остальное,
+// в середине — бар/напитки, в конце — снеки/закуски. Определяется по
+// названию рубрики (категории у каждого кафе свои, это не жесткий тип, а
+// иконка сама по себе не отличает "закуски" от "основных блюд").
+const categoryRank = (cat) => {
+  const text = `${cat.name || ""}`.toLowerCase();
+  if (/снек|снэк|закуск|snack/.test(text)) return 3;
+  if (/\bбар\b|напит|коктейл|вино|пиво|алкогол|bar|drink|cocktail/.test(text))
+    return 2;
+  if (
+    /горяч|основн|\bблюда\b|кухня|\bеда\b|первое|второе|шашлык|плов|манты|main|kitchen|\bfood\b/.test(
+      text
+    )
+  )
+    return 0;
+  return 1;
 };
-const categoryRank = (cat) => CATEGORY_ICON_RANK[cat.icon] ?? 2;
 
 function OrderScreen({
   waiterName,

@@ -1,7 +1,8 @@
 // Разовая правка данных: переставляет рубрики (categories) во всех кафе в базе
-// так, чтобы блюда (иконка utensils/flame) шли первыми, бар/напитки
-// (wine/beer/coffee) — вторыми, остальные рубрики — после. Порядок блюд
-// внутри рубрик и сами блюда не трогает — только порядок массива categories.
+// так, чтобы основные блюда шли первыми, бар/напитки — вторыми, снеки/закуски —
+// последними, остальное — между блюдами и баром (определяется по названию
+// рубрики). Порядок блюд внутри рубрик и сами блюда не трогает — только
+// порядок массива categories.
 // Запуск:  npm run reorder-categories
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, existsSync } from "fs";
@@ -39,14 +40,19 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Совпадает с categoryRank в src/App.jsx — держим оба места в согласии,
 // если поменяешь одно, поменяй и другое.
-const CATEGORY_ICON_RANK = {
-  utensils: 0,
-  flame: 0,
-  wine: 1,
-  beer: 1,
-  coffee: 1,
+const categoryRank = (cat) => {
+  const text = `${cat.name || ""}`.toLowerCase();
+  if (/снек|снэк|закуск|snack/.test(text)) return 3;
+  if (/\bбар\b|напит|коктейл|вино|пиво|алкогол|bar|drink|cocktail/.test(text))
+    return 2;
+  if (
+    /горяч|основн|\bблюда\b|кухня|\bеда\b|первое|второе|шашлык|плов|манты|main|kitchen|\bfood\b/.test(
+      text
+    )
+  )
+    return 0;
+  return 1;
 };
-const categoryRank = (cat) => CATEGORY_ICON_RANK[cat.icon] ?? 2;
 
 const { data: rows, error } = await supabase
   .from("restaurants")
