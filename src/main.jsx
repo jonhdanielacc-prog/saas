@@ -4,7 +4,7 @@ import App from "./App.jsx";
 import OwnerGate from "./OwnerGate.jsx";
 import "./index.css";
 
-document.title = "OrderBoard";
+document.title = "Easy Меню";
 
 // Простая маршрутизация без библиотек: обычный сайт для официантов живёт на
 // корне, а панель владельца — по адресу с хэшем #owner (например,

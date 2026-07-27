@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Тест печати чека — Easy Меню</title>
+<style>
+  :root { --wine:#8C2F2A; --ink:#1B1918; --line:#d8d2cc; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:16px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         color:var(--ink); background:#f5f1ec; -webkit-text-size-adjust:100%; }
+  .wrap { max-width:520px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#6b625b; font-size:14px; margin:0 0 20px; line-height:1.5; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.5px; color:#6b625b; }
+  button { width:100%; padding:18px; font-size:18px; font-weight:600; border:0; border-radius:10px;
+           background:var(--wine); color:#fff; cursor:pointer; }
+  button:active { opacity:.85; }
+  button.alt { background:#fff; color:var(--ink); border:1px solid var(--line); font-size:16px; padding:14px; margin-top:10px; }
+  ol { margin:0; padding-left:20px; font-size:15px; line-height:1.7; }
+  .diag { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; line-height:1.6;
+          word-break:break-all; color:#4a423c; }
+  .diag b { color:var(--ink); }
+
+  /* ——— сам чек: ширина под ленту 58 мм ——— */
+  #receipt { width:100%; max-width:302px; margin:0 auto; background:#fff; color:#000;
+             font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; line-height:1.45; }
+  #receipt .c { text-align:center; }
+  #receipt .big { font-size:16px; font-weight:700; }
+  #receipt hr { border:0; border-top:1px dashed #000; margin:6px 0; }
+  #receipt .row { display:flex; justify-content:space-between; gap:8px; }
+  #receipt .row .r { text-align:right; white-space:nowrap; }
+  #receipt .muted { font-size:11px; }
+  .preview { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; overflow-x:auto; }
+
+  /* ——— режим печати: на бумагу уходит ТОЛЬКО чек ——— */
+  @media print {
+    body { background:#fff; padding:0; margin:0; }
+    .noprint { display:none !important; }
+    .preview { border:0; padding:0; }
+    #receipt { max-width:none; width:auto; font-size:12px; }
+    @page { margin:2mm; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="noprint">
+    <h1>Тест печати чека</h1>
+    <p class="sub">
+      Страница проверяет одно: выходит ли бумажный чек из кассового аппарата,
+      если команду на печать дать из обычного браузера.
+      Ниже — настоящий чек, зафискализированный через YaKassa на демо-стенде.
+    </p>
+
+    <div class="card">
+      <h2>Что нужно сделать</h2>
+      <ol>
+        <li>Открыть эту страницу <b>на самом кассовом аппарате</b>.</li>
+        <li>Нажать кнопку «Напечатать чек».</li>
+        <li>Посмотреть, вышла ли бумага, и как выглядит текст (не обрезан ли по краям).</li>
+      </ol>
+    </div>
+
+    <button onclick="window.print()">🖨 Напечатать чек</button>
+    <button class="alt" onclick="document.getElementById('d').hidden=!document.getElementById('d').hidden">
+      Показать данные об устройстве
+    </button>
+
+    <div class="card" id="d" hidden style="margin-top:16px">
+      <h2>Данные об устройстве</h2>
+      <div class="diag" id="diag"></div>
+    </div>
+  </div>
+
+  <div class="card preview">
+    <div id="receipt">
+      <div class="c big">YaKassa</div>
+      <div class="c big">Контрольно-кассовый чек</div>
+      <div class="c">Test80 Test80</div>
+      <div class="c">ИНН 00000000000080</div>
+      <div class="c">ТЕСТ НАЗВАНИЯ МАГАЗИНА</div>
+      <div class="c">720020, Бишкек, Гоголя 117</div>
+      <hr />
+      <div class="row"><span>Чек</span><span class="r">3</span></div>
+      <div class="row"><span>Дата</span><span class="r">27.07.2026, 18:26</span></div>
+      <div class="row"><span>Смена</span><span class="r">538</span></div>
+      <div class="row"><span>Вид расчёта</span><span class="r">полный расчёт</span></div>
+      <div class="row"><span>СНО</span><span class="r">Общий</span></div>
+      <hr />
+      <div class="c">ПРОДАЖА</div>
+      <hr />
+      <div>Лагман</div>
+      <div class="row"><span>250.00 x 2</span><span class="r">500.00</span></div>
+      <div class="muted">НДС 12%, НСП 1%</div>
+      <div>Чай</div>
+      <div class="row"><span>60.00 x 1</span><span class="r">60.00</span></div>
+      <div class="muted">НДС 12%, НСП 1%</div>
+      <hr />
+      <div class="row"><span>Всего</span><span class="r">495.58</span></div>
+      <div class="muted">НДС 12%: 59.47 &nbsp; НСП 1%: 4.95</div>
+      <div class="row big"><span>ИТОГ, сом</span><span class="r">560.00</span></div>
+      <div class="c muted">(безналичными)</div>
+      <hr />
+      <div class="muted">
+        <div class="row"><span>ЗН/ПККМ версия</span><span class="r">2.2.09.01</span></div>
+        <div class="row"><span>РН ККМ</span><span class="r">0000004837040693</span></div>
+        <div class="row"><span>ФМ</span><span class="r">0000000000003839</span></div>
+        <div class="row"><span>ФД</span><span class="r">5739</span></div>
+        <div class="row"><span>ФПД</span><span class="r">174500460097665</span></div>
+      </div>
+      <hr />
+      <div class="c muted">Проверка чека — по QR в электронной версии</div>
+      <div class="c muted">Easy Меню · тестовая печать</div>
+      <div class="c">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="card noprint">
+    <h2>Электронная версия этого чека</h2>
+    <p class="sub" style="margin:0 0 10px">
+      Так чек выглядит на стороне ОФД. Ссылку тоже полезно открыть на кассе
+      и попробовать напечатать её — вдруг сработает лучше.
+    </p>
+    <a href="https://ofd2.yaros.kg:8143/ofd-0.0.1/gate/get-html-receipt/6a674e86d9cbee625d33252d"
+       target="_blank" rel="noopener">Открыть чек на сайте ОФД →</a>
+  </div>
+
+</div>
+
+<script>
+  // Диагностика — чтобы по итогам теста мы понимали, на каком именно
+  // аппарате печать сработала или не сработала.
+  var rows = [
+    ["Устройство", navigator.userAgent],
+    ["Экран", screen.width + " x " + screen.height + " (dpr " + window.devicePixelRatio + ")"],
+    ["Язык", navigator.language],
+    ["window.print()", typeof window.print === "function" ? "доступен" : "НЕДОСТУПЕН"]
+  ];
+  document.getElementById("diag").innerHTML =
+    rows.map(function (r) { return "<b>" + r[0] + ":</b> " + r[1]; }).join("<br>");
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 {
-  "name": "OrderBoard",
-  "short_name": "OrderBoard",
+  "name": "Easy Меню",
+  "short_name": "Easy Меню",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#1B1918",

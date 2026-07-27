@@ -1455,7 +1455,7 @@ export default function App() {
 
   useEffect(() => {
     if (restaurant && restaurant.name) {
-      document.title = `OrderBoard — ${restaurant.name}`;
+      document.title = `Easy Меню — ${restaurant.name}`;
     }
   }, [restaurant]);
 
